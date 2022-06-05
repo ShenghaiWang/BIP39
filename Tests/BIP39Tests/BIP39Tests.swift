@@ -14,6 +14,15 @@ final class BIP39Tests: XCTestCase {
             XCTAssertEqual(vector[1].components(separatedBy: " "), try BIP39.mnemonics(entropy: entropy))
         }
     }
+
+    func testBIPEntrophy() throws {
+        let testVector = try JSONDecoder().decode(TestVector.self, from: testVectors.data(using: .utf8)!)
+
+        try testVector.english.forEach { vector in
+            let entropy = Data(hex: vector[0])!
+            XCTAssertEqual(entropy, try BIP39.entropy(of: vector[1].components(separatedBy: " ")))
+        }
+    }
 }
 
 extension Data {
