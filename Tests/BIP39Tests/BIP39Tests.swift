@@ -11,7 +11,7 @@ final class BIP39Tests: XCTestCase {
 
         try testVector.english.forEach { vector in
             let entropy = Data(hex: vector[0])!
-            XCTAssertEqual(vector[1].components(separatedBy: " "), try BIP39.mnemonics(entropy: entropy))
+            XCTAssertEqual(vector[1].components(separatedBy: " "), try BIP39.mnemonics(from: entropy))
         }
     }
 
@@ -20,7 +20,17 @@ final class BIP39Tests: XCTestCase {
 
         try testVector.english.forEach { vector in
             let entropy = Data(hex: vector[0])!
-            XCTAssertEqual(entropy, try BIP39.entropy(of: vector[1].components(separatedBy: " ")))
+            XCTAssertEqual(entropy, try BIP39.entropy(from: vector[1].components(separatedBy: " ")))
+        }
+    }
+
+    func testBIPSeed() throws {
+        let testVector = try JSONDecoder().decode(TestVector.self, from: testVectors.data(using: .utf8)!)
+
+        try testVector.english.forEach { vector in
+            let entropy = Data(hex: vector[0])!
+            let seed = Data(hex: vector[2])!
+            XCTAssertEqual(seed, try BIP39.seed(from: entropy, passphrase: "TREZOR"))
         }
     }
 }

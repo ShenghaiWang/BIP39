@@ -1,10 +1,13 @@
-import CryptoKit
+import CryptoSwift
 import Foundation
 
 let byteLength = 8
+
 public struct BIP39 {
     static let keyBitsLength = 11
     static let checksumFactor = 32
+    static let PBKDF2Iterations = 2048
+    static let PBKDF2KeyLength = 64
 
     enum BIP39Error: Error {
         case entrophyDataError
@@ -82,16 +85,16 @@ public struct BIP39 {
         }
     }
 
-    static public func mnemonics(length: Length = .of128, language: Language = Language.english) throws -> [String]  {
+    static public func mnemonics(of length: Length = .of128, in language: Language = .english) throws -> [String]  {
         var entropy = Data(count: length.bytes)
         let randomResult = SecRandomCopyBytes(kSecRandomDefault, entropy.count, &entropy)
         guard randomResult == errSecSuccess else { throw BIP39Error.entrophyDataError }
-        return try mnemonics(entropy: entropy)
+        return try mnemonics(from: entropy)
     }
 
-    static func mnemonics(entropy: Data, language: Language = Language.english) throws -> [String]  {
+    static func mnemonics(from entropy: Data, in language: Language = Language.english) throws -> [String]  {
         guard let length = Length(rawValue: entropy.count * byteLength) else { throw BIP39Error.entrophyDataError }
-        let checksum = SHA256.hash(data: entropy)
+        let checksum = entropy.sha256()
         let wordListLength = (length.rawValue + (length.rawValue / checksumFactor)) / keyBitsLength
         return (entropy + checksum)
             .value(byBits: keyBitsLength)
@@ -99,7 +102,7 @@ public struct BIP39 {
             .map { language.words[Int($0)] }
     }
 
-    static public func entropy(of mnemonics: [String], language: Language = Language.english) throws -> Data {
+    static public func entropy(from mnemonics: [String], in language: Language = .english) throws -> Data {
         guard mnemonics.count >= Length.minWordCount
                 && mnemonics.count <= Length.maxWordCount
                 && Length.possibleWordCounts.contains(mnemonics.count) else {
@@ -114,14 +117,32 @@ public struct BIP39 {
         guard bits.count.isMultiple(of: checksumFactor + 1) else { throw BIP39Error.invalidEntrophyLength }
         let checksumBits = bits.suffix(bits.count / (checksumFactor + 1))
         guard let entropy = bits.prefix(bits.count - checksumBits.count).BIP39Entrophy,
-              var checksum = SHA256.hash(data: entropy).makeIterator().first (where: { _ in true }) else {
+              var checksum = entropy.sha256().first else {
             throw BIP39Error.invalidMnemonics
         }
         checksum >>= (byteLength - checksumBits.count)
-        guard checksum == UInt8(checksumBits, radix: 2) else { throw
-            BIP39Error.invalidMnemonics
+        guard checksum == UInt8(checksumBits, radix: 2) else {
+            throw BIP39Error.invalidMnemonics
         }
         return entropy
+    }
+
+    static public func seed(from mnemonics: [String], passphrase: String = "", in language: Language = .english) throws -> Data {
+        guard let data = mnemonics.joined(separator: " ").decomposedStringWithCompatibilityMapping.data(using: .utf8),
+              let salt = ("mnemonic" + passphrase).decomposedStringWithCompatibilityMapping.data(using: .utf8) else {
+            throw BIP39Error.invalidMnemonics
+        }
+        let seed = try PKCS5.PBKDF2(password: data.bytes,
+                                    salt: salt.bytes,
+                                    iterations: Self.PBKDF2Iterations,
+                                    keyLength: Self.PBKDF2KeyLength,
+                                    variant: HMAC.Variant.sha2(.sha512)).calculate()
+        return Data(seed)
+    }
+
+    static public func seed(from entropy: Data, passphrase: String = "", in language: Language = .english) throws -> Data {
+        let mnemonics = try BIP39.mnemonics(from: entropy, in: language)
+        return try BIP39.seed(from: mnemonics, passphrase: passphrase, in: language)
     }
 }
 
