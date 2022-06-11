@@ -1,16 +1,14 @@
 import CryptoSwift
 import Foundation
 
-let byteLength = 8
-
 public struct BIP39 {
     static let keyBitsLength = 11
     static let checksumFactor = 32
     static let PBKDF2Iterations = 2048
     static let PBKDF2KeyLength = 64
 
-    enum BIP39Error: Error {
-        case entrophyDataError
+    public enum BIP39Error: Error {
+        case invalidEntrophyData
         case invalidEntrophyLength
         case invalidMnemonics
     }
@@ -21,30 +19,6 @@ public struct BIP39 {
         case of192 = 192
         case of224 = 224
         case of256 = 256
-
-        var bitsOfCheckSum: Int {
-            rawValue / BIP39.checksumFactor
-        }
-
-        var bytes: Int {
-            rawValue / byteLength
-        }
-
-        var numberOfWords: Int {
-            (rawValue + bitsOfCheckSum) / keyBitsLength
-        }
-
-        static var minWordCount: Int {
-            Length.allCases.map(\.numberOfWords).min() ?? 0
-        }
-
-        static var maxWordCount: Int {
-            Length.allCases.map(\.numberOfWords).max() ?? 0
-        }
-
-        static var possibleWordCounts: [Int] {
-            Length.allCases.map(\.numberOfWords)
-        }
     }
 
     public enum Language {
@@ -58,42 +32,17 @@ public struct BIP39 {
         case italian
         case czech
         case portuguese
-
-        var words: [String] {
-            switch self {
-            case .english:
-                return WordList.english
-            case .japanese:
-                return WordList.japanese
-            case .korean:
-                return WordList.korean
-            case .spanish:
-                return WordList.spanish
-            case .chineseSimplified:
-                return WordList.chineseSimplified
-            case .chineseTraditional:
-                return WordList.chineseTraditional
-            case .french:
-                return WordList.french
-            case .italian:
-                return WordList.italian
-            case .czech:
-                return WordList.czech
-            case .portuguese:
-                return WordList.portuguese
-            }
-        }
     }
 
     static public func mnemonics(of length: Length = .of128, in language: Language = .english) throws -> [String]  {
         var entropy = Data(count: length.bytes)
         let randomResult = SecRandomCopyBytes(kSecRandomDefault, entropy.count, &entropy)
-        guard randomResult == errSecSuccess else { throw BIP39Error.entrophyDataError }
+        guard randomResult == errSecSuccess else { throw BIP39Error.invalidEntrophyData }
         return try mnemonics(from: entropy)
     }
 
-    static func mnemonics(from entropy: Data, in language: Language = Language.english) throws -> [String]  {
-        guard let length = Length(rawValue: entropy.count * byteLength) else { throw BIP39Error.entrophyDataError }
+    static public func mnemonics(from entropy: Data, in language: Language = Language.english) throws -> [String]  {
+        guard let length = Length(rawValue: entropy.count * byteLength) else { throw BIP39Error.invalidEntrophyData }
         let checksum = entropy.sha256()
         let wordListLength = (length.rawValue + (length.rawValue / checksumFactor)) / keyBitsLength
         return (entropy + checksum)
@@ -143,53 +92,5 @@ public struct BIP39 {
     static public func seed(from entropy: Data, passphrase: String = "", in language: Language = .english) throws -> Data {
         let mnemonics = try BIP39.mnemonics(from: entropy, in: language)
         return try BIP39.seed(from: mnemonics, passphrase: passphrase, in: language)
-    }
-}
-
-extension Data {
-    /// Calculate values based on the specified bit length bwteen 1...15, or returns empty array
-    /// Eg. value of `0001 0011` by `4` will have `[1, 3]`
-    func value(byBits bitLength: Int) -> [Int] {
-        guard bitLength <= 15, bitLength > 0 else { return [] }
-        var result: [Int] = []
-        for i in (0..<count * 8 / bitLength) {
-            guard let index = valueOf(from: i * bitLength, length: bitLength) else { return [] }
-            result.append(Int(index))
-        }
-        return result
-    }
-
-    private func valueOf(from startingBit: Int, length: Int) -> UInt64? {
-        let bytes = self[(startingBit / 8) ..< (startingBit+length + 7) / 8]
-        let padding = Data(repeating: 0, count: 8 - bytes.count)
-        let padded = bytes + padding
-        guard let pointee = padded.withUnsafeBytes ({ body in
-            body.baseAddress?.assumingMemoryBound(to: UInt64.self).pointee
-        }) else { return nil }
-        var value = pointee.bigEndian
-        value <<= (startingBit % 8)
-        value >>= (64 - length)
-        return value
-    }
-}
-
-extension StringProtocol {
-    var BIP39Entrophy: Data? {
-        Data(chunked(by: byteLength).compactMap { UInt8(String($0), radix: 2) })
-    }
-}
-
-
-extension Collection {
-    func chunked(by distance: Int) -> [[Element]] {
-        precondition(distance > 0, "distance must be greater than 0")
-        var index = startIndex
-        let iterator: AnyIterator<Array<Element>> = AnyIterator({
-            let newIndex = self.index(index, offsetBy: distance, limitedBy: endIndex) ?? self.endIndex
-            defer { index = newIndex }
-            let range = index ..< newIndex
-            return index != self.endIndex ? Array(self[range]) : nil
-        })
-        return Array(iterator)
     }
 }
